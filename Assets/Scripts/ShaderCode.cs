@@ -1,65 +1,51 @@
-using System.Collections;
-using System.Collections.Generic;
+// === VIEW (Shader Layer) ===
+// ShaderCode updates per-card shader parameters based on CardVisual tilt state.
+
 using UnityEngine;
 using UnityEngine.UI;
+
 public class ShaderCode : MonoBehaviour
 {
+    private Image image;
+    private Material cardMaterial;
+    private CardVisual visual;
 
-    Image image;
-    Material m;
-    CardVisual visual;
+    private static readonly string[] Editions = { "REGULAR", "POLYCHROME", "REGULAR", "NEGATIVE" };
 
-    // Start is called before the first frame update
     void Start()
     {
         image = GetComponent<Image>();
-        m = new Material(image.material);
-        image.material = m;
+
+        // Each card needs its own material instance to avoid shared state
+        cardMaterial = new Material(image.material);
+        image.material = cardMaterial;
+
         visual = GetComponentInParent<CardVisual>();
 
-        string[] editions = new string[4];
-        editions[0] = "REGULAR";
-        editions[1] = "POLYCHROME";
-        editions[2] = "REGULAR";
-        editions[3] = "NEGATIVE";
+        // Snapshot keywords before iterating to avoid modifying during enumeration
+        var enabledKeywords = cardMaterial.enabledKeywords;
+        foreach (var keyword in enabledKeywords)
+            cardMaterial.DisableKeyword(keyword);
 
-        for (int i = 0; i < image.material.enabledKeywords.Length; i++)
-        {
-            image.material.DisableKeyword(image.material.enabledKeywords[i]);
-        }
-        image.material.EnableKeyword("_EDITION_" + editions[Random.Range(0, editions.Length)]);
+        cardMaterial.EnableKeyword("_EDITION_" + Editions[Random.Range(0, Editions.Length)]);
     }
 
-    // Update is called once per frame
     void Update()
     {
+        Vector3 eulerAngles = transform.parent.localRotation.eulerAngles;
 
-        // Get the current rotation as a quaternion
-        Quaternion currentRotation = transform.parent.localRotation;
+        float xAngle = ClampAngle(eulerAngles.x, -90f, 90f);
+        float yAngle = ClampAngle(eulerAngles.y, -90f, 90f);
 
-        // Convert the quaternion to Euler angles
-        Vector3 eulerAngles = currentRotation.eulerAngles;
-
-        // Get the X-axis angle
-        float xAngle = eulerAngles.x;
-        float yAngle = eulerAngles.y;
-
-        // Ensure the X-axis angle stays within the range of -90 to 90 degrees
-        xAngle = ClampAngle(xAngle, -90f, 90f);
-        yAngle = ClampAngle(yAngle, -90f, 90);
-
-
-        m.SetVector("_Rotation", new Vector2(ExtensionMethods.Remap(xAngle,-20,20,-.5f,.5f), ExtensionMethods.Remap(yAngle, -20, 20, -.5f, .5f)));
-
+        cardMaterial.SetVector("_Rotation", new Vector2(
+            ExtensionMethods.Remap(xAngle, -20, 20, -.5f, .5f),
+            ExtensionMethods.Remap(yAngle, -20, 20, -.5f, .5f)));
     }
 
-    // Method to clamp an angle between a minimum and maximum value
-    float ClampAngle(float angle, float min, float max)
+    private float ClampAngle(float angle, float min, float max)
     {
-        if (angle < -180f)
-            angle += 360f;
-        if (angle > 180f)
-            angle -= 360f;
+        if (angle < -180f) angle += 360f;
+        if (angle > 180f)  angle -= 360f;
         return Mathf.Clamp(angle, min, max);
     }
 }

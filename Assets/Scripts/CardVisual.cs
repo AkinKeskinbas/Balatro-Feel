@@ -1,23 +1,29 @@
+// === VIEW ===
+// CardVisual is purely responsible for animations and rendering.
+// It subscribes to Card (ViewModel) events and never drives game logic.
+
 using System;
 using UnityEngine;
 using DG.Tweening;
 using System.Collections;
-using UnityEngine.EventSystems;
-using Unity.Collections;
+using TMPro;
 using UnityEngine.UI;
-using Unity.VisualScripting;
 
 public class CardVisual : MonoBehaviour
 {
-    private bool initalize = false;
+    private bool initialized = false;
 
     [Header("Card")]
     public Card parentCard;
     private Transform cardTransform;
     private Vector3 rotationDelta;
     private int savedIndex;
-    Vector3 movementDelta;
+    private Vector3 movementDelta;
     private Canvas canvas;
+
+    // Cached once — never looked up per-frame
+    private Camera mainCamera;
+    private Vector3 mouseWorldPosition;
 
     [Header("References")]
     public Transform visualShadow;
@@ -48,7 +54,7 @@ public class CardVisual : MonoBehaviour
     [Header("Select Parameters")]
     [SerializeField] private float selectPunchAmount = 20;
 
-    [Header("Hober Parameters")]
+    [Header("Hover Parameters")]
     [SerializeField] private float hoverPunchAngle = 5;
     [SerializeField] private float hoverTransition = .15f;
 
@@ -63,7 +69,9 @@ public class CardVisual : MonoBehaviour
 
     private float curveYOffset;
     private float curveRotationOffset;
-    private Coroutine pressCoroutine;
+    [Header("Debug Face")]
+    [SerializeField] private TextMeshProUGUI rankText;
+    [SerializeField] private TextMeshProUGUI suitText;
 
     private void Start()
     {
@@ -72,13 +80,13 @@ public class CardVisual : MonoBehaviour
 
     public void Initialize(Card target, int index = 0)
     {
-        //Declarations
         parentCard = target;
         cardTransform = target.transform;
         canvas = GetComponent<Canvas>();
         shadowCanvas = visualShadow.GetComponent<Canvas>();
+        mainCamera = Camera.main;
 
-        //Event Listening
+        // Subscribe to ViewModel events
         parentCard.PointerEnterEvent.AddListener(PointerEnter);
         parentCard.PointerExitEvent.AddListener(PointerExit);
         parentCard.BeginDragEvent.AddListener(BeginDrag);
@@ -86,11 +94,66 @@ public class CardVisual : MonoBehaviour
         parentCard.PointerDownEvent.AddListener(PointerDown);
         parentCard.PointerUpEvent.AddListener(PointerUp);
         parentCard.SelectEvent.AddListener(Select);
+        UpdateDebugFace();
 
-        //Initialization
-        initalize = true;
+        initialized = true;
     }
+    private void UpdateDebugFace()
+    {
+        if (parentCard == null)
+            return;
 
+        if (rankText != null)
+            rankText.text = GetRankLabel(parentCard.Rank);
+
+        if (suitText != null)
+        {
+            suitText.text = GetSuitLabel(parentCard.Suit);
+            suitText.color = GetSuitColor(parentCard.Suit);
+        }
+    }
+    private string GetRankLabel(Rank rank)
+    {
+        return rank switch
+        {
+            Rank.Ace => "A",
+            Rank.King => "K",
+            Rank.Queen => "Q",
+            Rank.Jack => "J",
+            Rank.Ten => "10",
+            Rank.Nine => "9",
+            Rank.Eight => "8",
+            Rank.Seven => "7",
+            Rank.Six => "6",
+            Rank.Five => "5",
+            Rank.Four => "4",
+            Rank.Three => "3",
+            Rank.Two => "2",
+            _ => "?"
+        };
+    }
+    private string GetSuitLabel(Suit suit)
+    {
+        return suit switch
+        {
+            Suit.Spades => "♠",
+            Suit.Hearts => "♥",
+            Suit.Diamonds => "♦",
+            Suit.Clubs => "♣",
+            _ => "?"
+        };
+    }
+    private Color GetSuitColor(Suit suit)
+    {
+        return suit switch
+        {
+            Suit.Hearts => Color.red,
+            Suit.Diamonds => Color.red,
+            Suit.Spades => Color.black,
+            Suit.Clubs => Color.black,
+            _ => Color.white
+        };
+    }
     public void UpdateIndex(int length)
     {
         transform.SetSiblingIndex(parentCard.transform.parent.GetSiblingIndex());
@@ -98,13 +161,15 @@ public class CardVisual : MonoBehaviour
 
     void Update()
     {
-        if (!initalize || parentCard == null) return;
+        if (!initialized || parentCard == null) return;
+
+        // Cache once per frame instead of calling per-method
+        mouseWorldPosition = mainCamera.ScreenToWorldPoint(Input.mousePosition);
 
         HandPositioning();
         SmoothFollow();
         FollowRotation();
         CardTilt();
-
     }
 
     private void HandPositioning()
@@ -116,13 +181,13 @@ public class CardVisual : MonoBehaviour
 
     private void SmoothFollow()
     {
-        Vector3 verticalOffset = (Vector3.up * (parentCard.isDragging ? 0 : curveYOffset));
+        Vector3 verticalOffset = Vector3.up * (parentCard.isDragging ? 0 : curveYOffset);
         transform.position = Vector3.Lerp(transform.position, cardTransform.position + verticalOffset, followSpeed * Time.deltaTime);
     }
 
     private void FollowRotation()
     {
-        Vector3 movement = (transform.position - cardTransform.position);
+        Vector3 movement = transform.position - cardTransform.position;
         movementDelta = Vector3.Lerp(movementDelta, movement, 25 * Time.deltaTime);
         Vector3 movementRotation = (parentCard.isDragging ? movementDelta : movement) * rotationAmount;
         rotationDelta = Vector3.Lerp(rotationDelta, movementRotation, rotationSpeed * Time.deltaTime);
@@ -135,10 +200,13 @@ public class CardVisual : MonoBehaviour
         float sine = Mathf.Sin(Time.time + savedIndex) * (parentCard.isHovering ? .2f : 1);
         float cosine = Mathf.Cos(Time.time + savedIndex) * (parentCard.isHovering ? .2f : 1);
 
-        Vector3 offset = transform.position - Camera.main.ScreenToWorldPoint(Input.mousePosition);
-        float tiltX = parentCard.isHovering ? ((offset.y * -1) * manualTiltAmount) : 0;
-        float tiltY = parentCard.isHovering ? ((offset.x) * manualTiltAmount) : 0;
-        float tiltZ = parentCard.isDragging ? tiltParent.eulerAngles.z : (curveRotationOffset * (curve.rotationInfluence * parentCard.SiblingAmount()));
+        // mouseWorldPosition already computed in Update()
+        Vector3 offset = transform.position - mouseWorldPosition;
+        float tiltX = parentCard.isHovering ? (offset.y * -1 * manualTiltAmount) : 0;
+        float tiltY = parentCard.isHovering ? (offset.x * manualTiltAmount) : 0;
+        float tiltZ = parentCard.isDragging
+            ? tiltParent.eulerAngles.z
+            : curveRotationOffset * (curve.rotationInfluence * parentCard.SiblingAmount());
 
         float lerpX = Mathf.LerpAngle(tiltParent.eulerAngles.x, tiltX + (sine * autoTiltAmount), tiltSpeed * Time.deltaTime);
         float lerpY = Mathf.LerpAngle(tiltParent.eulerAngles.y, tiltY + (cosine * autoTiltAmount), tiltSpeed * Time.deltaTime);
@@ -147,30 +215,30 @@ public class CardVisual : MonoBehaviour
         tiltParent.eulerAngles = new Vector3(lerpX, lerpY, lerpZ);
     }
 
+    // --- Event handlers (bound to Card ViewModel) ---
+
     private void Select(Card card, bool state)
     {
         DOTween.Kill(2, true);
         float dir = state ? 1 : 0;
         shakeParent.DOPunchPosition(shakeParent.up * selectPunchAmount * dir, scaleTransition, 10, 1);
-        shakeParent.DOPunchRotation(Vector3.forward * (hoverPunchAngle/2), hoverTransition, 20, 1).SetId(2);
+        shakeParent.DOPunchRotation(Vector3.forward * (hoverPunchAngle / 2), hoverTransition, 20, 1).SetId(2);
 
-        if(scaleAnimations)
-            transform.DOScale(scaleOnHover, scaleTransition).SetEase(scaleEase);
-
+        if (scaleAnimations)
+            transform.DOScale(state ? scaleOnSelect : 1f, scaleTransition).SetEase(scaleEase);
     }
 
     public void Swap(float dir = 1)
     {
-        if (!swapAnimations)
-            return;
+        if (!swapAnimations) return;
 
-        DOTween.Kill(2, true);
+        DOTween.Kill(3, true);
         shakeParent.DOPunchRotation((Vector3.forward * swapRotationAngle) * dir, swapTransition, swapVibrato, 1).SetId(3);
     }
 
     private void BeginDrag(Card card)
     {
-        if(scaleAnimations)
+        if (scaleAnimations)
             transform.DOScale(scaleOnSelect, scaleTransition).SetEase(scaleEase);
 
         canvas.overrideSorting = true;
@@ -184,7 +252,7 @@ public class CardVisual : MonoBehaviour
 
     private void PointerEnter(Card card)
     {
-        if(scaleAnimations)
+        if (scaleAnimations)
             transform.DOScale(scaleOnHover, scaleTransition).SetEase(scaleEase);
 
         DOTween.Kill(2, true);
@@ -199,21 +267,52 @@ public class CardVisual : MonoBehaviour
 
     private void PointerUp(Card card, bool longPress)
     {
-        if(scaleAnimations)
+        if (scaleAnimations)
             transform.DOScale(longPress ? scaleOnHover : scaleOnSelect, scaleTransition).SetEase(scaleEase);
-        canvas.overrideSorting = false;
 
+        canvas.overrideSorting = false;
         visualShadow.localPosition = shadowDistance;
         shadowCanvas.overrideSorting = true;
     }
 
     private void PointerDown(Card card)
     {
-        if(scaleAnimations)
+        if (scaleAnimations)
             transform.DOScale(scaleOnSelect, scaleTransition).SetEase(scaleEase);
-            
-        visualShadow.localPosition += (-Vector3.up * shadowOffset);
+
+        visualShadow.localPosition += -Vector3.up * shadowOffset;
         shadowCanvas.overrideSorting = false;
     }
+    public void KillTweens()
+    {
+        transform.DOKill(true);
 
+        if (shakeParent != null)
+            shakeParent.DOKill(true);
+
+        if (tiltParent != null)
+            tiltParent.DOKill(true);
+
+        if (visualShadow != null)
+            visualShadow.DOKill(true);
+
+        if (cardImage != null)
+            cardImage.DOKill(true);
+    }
+
+    private void OnDestroy()
+    {
+        KillTweens();
+
+        if (parentCard == null)
+            return;
+
+        parentCard.PointerEnterEvent.RemoveListener(PointerEnter);
+        parentCard.PointerExitEvent.RemoveListener(PointerExit);
+        parentCard.BeginDragEvent.RemoveListener(BeginDrag);
+        parentCard.EndDragEvent.RemoveListener(EndDrag);
+        parentCard.PointerDownEvent.RemoveListener(PointerDown);
+        parentCard.PointerUpEvent.RemoveListener(PointerUp);
+        parentCard.SelectEvent.RemoveListener(Select);
+    }
 }

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /d/UnityExamples/Balatro-Feel -type d -not -path */Library* -not -path */Temp*)"
+    ]
+  }
+}
