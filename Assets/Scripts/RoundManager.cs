@@ -22,15 +22,21 @@ public class RoundManager : MonoBehaviour
     public bool IsRoundOver => roundResult != RoundResultState.InProgress;
     public bool HasWon => roundResult == RoundResultState.Won;
     public bool HasLost => roundResult == RoundResultState.Lost;
+    [Header("Round Rewards")]
+    [SerializeField] private int roundRewardGold = 18;
 
+    public int RoundRewardGold => roundRewardGold;
+    private bool rewardGranted;
     private void Start()
     {
+        InitializeRunState();
         StartRound();
     }
 
     public void StartRound()
     {
         currentScore = 0;
+        rewardGranted = false;
         handsRemaining = maxHandsPerRound;
         discardsRemaining = maxDiscardsPerRound;
         roundResult = RoundResultState.InProgress;
@@ -39,8 +45,41 @@ public class RoundManager : MonoBehaviour
         Debug.Log($"Target Score: {targetScore}");
         Debug.Log($"Hands Remaining: {handsRemaining}");
         Debug.Log($"Discards Remaining: {discardsRemaining}");
+        Debug.Log($"Reward Gold: {roundRewardGold}");
     }
+    private void InitializeRunState()
+    {
+        RunStateHolder holder = FindAnyObjectByType<RunStateHolder>();
 
+        if (holder == null)
+        {
+            Debug.LogError("RunStateHolder not found in scene.");
+            return;
+        }
+
+        // TEST CHARACTER
+        CharacterData character = new CharacterData(
+            id: "seer",
+            displayName: "Seer",
+            description: "Reveals next duel field before final prep.",
+            passiveType: CharacterPassiveType.RevealNextDuelFieldBeforePrep
+        );
+
+        // TEST FIELD
+        GlobalFieldData field = new GlobalFieldData(
+            id: "mana_surge",
+            displayName: "Mana Surge",
+            description: "Increase chip gain.",
+            effectType: FieldEffectType.BonusChipsPercent,
+            effectValue: 10
+        );
+
+        RunState run = new RunState(character, field);
+
+        holder.InitializeRun(run);
+
+        Debug.Log("RunState initialized.");
+    }
     public bool CanPlayHand()
     {
         return !IsRoundOver && handsRemaining > 0;
@@ -86,6 +125,17 @@ public class RoundManager : MonoBehaviour
         if (currentScore >= targetScore)
         {
             roundResult = RoundResultState.Won;
+
+            if (!rewardGranted)
+            {
+                RunStateHolder holder = FindAnyObjectByType<RunStateHolder>();
+                if (holder != null && holder.CurrentRunState != null)
+                {
+                    holder.CurrentRunState.AddGold(roundRewardGold);
+                    rewardGranted = true;
+                }
+            }
+
             Debug.Log("=== ROUND WON ===");
             return;
         }

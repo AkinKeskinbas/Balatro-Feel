@@ -34,7 +34,13 @@ public class PlayerHandZone : MonoBehaviour
     
     [Header("Round")]
     [SerializeField] private RoundManager roundManager;
+    
+    [Header("HUD")]
+    [SerializeField] private RoundHUDView roundHUDView;
+    [Header("Presentation")]
+    [SerializeField] private PlayedCardsPresenter playedCardsPresenter;
 
+    private bool isPlayingHand;
     private Rank GetRandomRank()
     {
         Rank[] ranks = (Rank[])System.Enum.GetValues(typeof(Rank));
@@ -50,7 +56,8 @@ public class PlayerHandZone : MonoBehaviour
     private void Start()
     {
         rect = GetComponent<RectTransform>();
-        
+        if (roundHUDView == null)
+            roundHUDView = FindAnyObjectByType<RoundHUDView>();
 
         if (deckManager == null)
         {
@@ -74,6 +81,8 @@ public class PlayerHandZone : MonoBehaviour
                 return;
             }
         }
+        if (playedCardsPresenter == null)
+            playedCardsPresenter = FindAnyObjectByType<PlayedCardsPresenter>();
 
         SpawnStartingCardsFromDeck();
         StartCoroutine(InitVisualIndexes());
@@ -161,8 +170,27 @@ public class PlayerHandZone : MonoBehaviour
         HandleCardSwap();
         HandlePlayHandInput();
         HandleDiscardInput();
+        UpdateHandPreview();
     }
+    private void UpdateHandPreview()
+    {
+        if (roundHUDView == null)
+            return;
 
+        if (isPlayingHand || isDiscarding)
+            return;
+
+        var selectedCards = GetSelectedCards();
+
+        if (selectedCards.Count < 1 || selectedCards.Count > 5)
+        {
+            roundHUDView.ClearHandPreview();
+            return;
+        }
+
+        HandScoreBreakdown breakdown = ScoreCalculator.Calculate(selectedCards);
+        roundHUDView.ShowHandPreviewInstant(breakdown);
+    }
     private void HandleDiscardInput()
     {
         if (!Input.GetKeyDown(KeyCode.D))
@@ -265,6 +293,9 @@ public class PlayerHandZone : MonoBehaviour
         if (!Input.GetKeyDown(KeyCode.Space))
             return;
 
+        if (isPlayingHand)
+            return;
+
         if (!roundManager.CanPlayHand())
         {
             Debug.LogWarning("No hands remaining or round is already over.");
@@ -273,20 +304,105 @@ public class PlayerHandZone : MonoBehaviour
 
         var selectedCards = GetSelectedCards();
 
-        Debug.Log("=== PLAYED CARDS ===");
-        foreach (var card in selectedCards)
-            Debug.Log(card.GetCardName());
-
         if (selectedCards.Count < 1 || selectedCards.Count > 5)
         {
             Debug.LogWarning("You must select between 1 and 5 cards.");
             return;
         }
 
+        EvaluatedHand evaluatedHand = HandEvaluator.Evaluate(selectedCards);
         HandScoreBreakdown breakdown = ScoreCalculator.Calculate(selectedCards);
+
+        StartCoroutine(PlayHandRoutine(evaluatedHand, breakdown));
+    }
+    private IEnumerator PlayHandRoutine(EvaluatedHand evaluatedHand, HandScoreBreakdown breakdown)
+    {
+        isPlayingHand = true;
+
+        int roundScoreBefore = roundManager.CurrentScore;
+
+        if (roundHUDView != null)
+            roundHUDView.ResetAnimatedHandValues(breakdown);
+
+        if (playedCardsPresenter != null && roundHUDView != null)
+            playedCardsPresenter.OnChipContributionStep = roundHUDView.AnimateChipContributionStep;
+
+        if (playedCardsPresenter != null)
+            yield return StartCoroutine(playedCardsPresenter.PresentPlayedHand(evaluatedHand, breakdown));
+
         roundManager.PlayHand(breakdown);
 
-        StartCoroutine(PlayAndRedrawRoutine(selectedCards));
+        int roundScoreAfter = roundManager.CurrentScore;
+
+        if (roundHUDView != null)
+            roundHUDView.PlayHandScoreSequence(breakdown, roundScoreBefore, roundScoreAfter);
+
+        yield return new WaitForSeconds(1.6f);
+
+        if (playedCardsPresenter != null)
+            playedCardsPresenter.OnChipContributionStep = null;
+
+        yield return StartCoroutine(RemovePlayedCardsAndRedraw(evaluatedHand.PlayedCards));
+
+        isPlayingHand = false;
+        UpdateHandPreview();
+    }
+    private IEnumerator RemovePlayedCardsAndRedraw(List<Card> playedCards)
+    {
+        hoveredCard = null;
+        selectedCard = null;
+
+        List<Transform> slotsToDestroy = new();
+
+        foreach (Card card in playedCards)
+        {
+            if (card == null)
+                continue;
+
+            card.KillTweens();
+            card.Deselect();
+            cards.Remove(card);
+
+            if (card.transform.parent != null)
+                slotsToDestroy.Add(card.transform.parent);
+            else
+                Destroy(card.gameObject);
+        }
+
+        foreach (Transform slot in slotsToDestroy)
+        {
+            if (slot == null)
+                continue;
+
+            slot.DOKill(true);
+
+            Card childCard = slot.GetComponentInChildren<Card>();
+            if (childCard != null)
+                childCard.KillTweens();
+
+            Destroy(slot.gameObject);
+        }
+
+        RefreshLayout();
+
+        yield return new WaitForSeconds(0.12f);
+
+        List<CardData> redrawnCards = deckManager.DrawMany(playedCards.Count);
+
+        foreach (CardData cardData in redrawnCards)
+        {
+            SpawnCardIntoHand(cardData);
+        }
+
+        RefreshLayout();
+
+        yield return new WaitForSeconds(0.1f);
+
+        for (int i = 0; i < cards.Count; i++)
+        {
+            if (cards[i] != null && cards[i].cardVisual != null)
+                cards[i].cardVisual.UpdateIndex(i);
+        }
     }
     private IEnumerator PlayAndRedrawRoutine(List<Card> playedCards)
     {
