@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEngine;
 using DG.Tweening;
 
+[RequireComponent(typeof(RectTransform))]
 public class PlayerHandZone : MonoBehaviour
 {
     [Header("References")] [SerializeField]
@@ -53,9 +54,19 @@ public class PlayerHandZone : MonoBehaviour
         return suits[Random.Range(0, suits.Length)];
     }
 
-    private void Start()
+    private void Awake()
     {
         rect = GetComponent<RectTransform>();
+
+        if (rect == null)
+        {
+            Debug.LogError("PlayerHandZone requires a RectTransform on the same GameObject.", this);
+            enabled = false;
+        }
+    }
+
+    private void Start()
+    {
         if (roundHUDView == null)
             roundHUDView = FindAnyObjectByType<RoundHUDView>();
 
@@ -342,6 +353,14 @@ public class PlayerHandZone : MonoBehaviour
         if (playedCardsPresenter != null)
             playedCardsPresenter.OnChipContributionStep = null;
 
+        if (roundManager.IsRoundOver)
+        {
+            roundManager.CompleteRoundFlow();
+            isPlayingHand = false;
+            UpdateHandPreview();
+            yield break;
+        }
+
         yield return StartCoroutine(RemovePlayedCardsAndRedraw(evaluatedHand.PlayedCards));
 
         isPlayingHand = false;
@@ -577,8 +596,56 @@ public class PlayerHandZone : MonoBehaviour
 
     private void RefreshLayout()
     {
+        if (rect == null)
+        {
+            Debug.LogError("PlayerHandZone cannot refresh layout because RectTransform is missing.", this);
+            return;
+        }
+
         rect.sizeDelta += Vector2.right;
         rect.sizeDelta -= Vector2.right;
+    }
+
+    public void ResetHandForNewRound()
+    {
+        ClearAllCardsFromHand();
+        SpawnStartingCardsFromDeck();
+        StartCoroutine(InitVisualIndexes());
+    }
+
+    public void ResetDeckAndHandForNewRun()
+    {
+        if (deckManager != null)
+            deckManager.ResetDeck();
+
+        ClearAllCardsFromHand();
+        SpawnStartingCardsFromDeck();
+        StartCoroutine(InitVisualIndexes());
+    }
+
+    private void ClearAllCardsFromHand()
+    {
+        selectedCard = null;
+        hoveredCard = null;
+
+        foreach (Card card in cards)
+        {
+            if (card == null)
+                continue;
+
+            card.KillTweens();
+
+            if (card.transform.parent != null)
+                Destroy(card.transform.parent.gameObject);
+            else
+                Destroy(card.gameObject);
+        }
+
+        cards.Clear();
+        RefreshLayout();
+
+        if (roundHUDView != null)
+            roundHUDView.ClearHandPreview();
     }
 
     private List<CardData> BuildTestHand(HandTestType type)

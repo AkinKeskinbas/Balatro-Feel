@@ -242,6 +242,27 @@ public class RoundHUDView : MonoBehaviour
             finalScoreText.text = "0";
     }
 
+    public void ResetForNewRound()
+    {
+        StopActiveAnimations();
+        RefreshStaticInfo();
+
+        if (roundScoreText != null)
+            roundScoreText.text = "0";
+
+        if (handTypeText != null)
+            handTypeText.text = "-";
+
+        if (chipsText != null)
+            chipsText.text = "0";
+
+        if (multText != null)
+            multText.text = "0";
+
+        if (finalScoreText != null)
+            finalScoreText.text = "0";
+    }
+
     private void StopActiveAnimations()
     {
         if (handPreviewRoutine != null)

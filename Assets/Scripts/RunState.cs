@@ -18,6 +18,14 @@ public class RunState
 
     public bool IsPvPRound => RoundIndex > 0 && RoundIndex % 4 == 0;
     public int UnlockedRuneSlotCount => RuneSlots.Count(slot => slot.IsUnlocked);
+    public bool IsValidRuntimeState =>
+        Lives >= 0 &&
+        CycleIndex > 0 &&
+        RoundIndex > 0 &&
+        SelectedCharacter != null &&
+        SelectedGlobalField != null;
+
+    public bool IsValidRunStartState => IsValidRuntimeState && Lives > 0;
 
     public RunState(
         CharacterData selectedCharacter,

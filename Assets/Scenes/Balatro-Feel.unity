@@ -1211,14 +1211,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5513f17c9be383745afb2affc9182a95, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RoundManager
-  targetScore: 300
+  runStateHolder: {fileID: 0}
+  playerHandZone: {fileID: 0}
+  baseTargetScore: 300
+  targetScorePerRoundIncrease: 75
   maxHandsPerRound: 4
   maxDiscardsPerRound: 2
+  roundRewardGold: 18
+  targetScore: 300
   currentScore: 0
   handsRemaining: 0
   discardsRemaining: 0
   roundResult: 0
-  roundRewardGold: 18
+  currentPhaseType: 0
 --- !u!1 &385168546
 GameObject:
   m_ObjectHideFlags: 0
@@ -3977,7 +3982,7 @@ MonoBehaviour:
   revealY: 0
   initialRevealDelay: 0.25
   perCardRevealDelay: 0.45
-  afterAllCardsDelay: 1
+  afterAllCardsDelay: 0.45
   scoreBurstHoldDuration: 0.8
   fadeOutDuration: 0.25
 --- !u!222 &913424183
@@ -7065,6 +7070,8 @@ MonoBehaviour:
       EffectType: 0
       EffectValue: 0
     RuneSlots: []
+    History:
+      RoundRecords: []
 --- !u!1 &1931137652
 GameObject:
   m_ObjectHideFlags: 0
