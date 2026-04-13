@@ -35,6 +35,7 @@ public class PlayerHandZone : MonoBehaviour
     
     [Header("Round")]
     [SerializeField] private RoundManager roundManager;
+    [SerializeField] private RunStateHolder runStateHolder;
     
     [Header("HUD")]
     [SerializeField] private RoundHUDView roundHUDView;
@@ -94,6 +95,9 @@ public class PlayerHandZone : MonoBehaviour
         }
         if (playedCardsPresenter == null)
             playedCardsPresenter = FindAnyObjectByType<PlayedCardsPresenter>();
+
+        if (runStateHolder == null)
+            runStateHolder = FindAnyObjectByType<RunStateHolder>();
 
         SpawnStartingCardsFromDeck();
         StartCoroutine(InitVisualIndexes());
@@ -199,7 +203,7 @@ public class PlayerHandZone : MonoBehaviour
             return;
         }
 
-        HandScoreBreakdown breakdown = ScoreCalculator.Calculate(selectedCards);
+        HandScoreBreakdown breakdown = ScoreCalculator.Calculate(selectedCards, GetCurrentRunState());
         roundHUDView.ShowHandPreviewInstant(breakdown);
     }
     private void HandleDiscardInput()
@@ -322,7 +326,7 @@ public class PlayerHandZone : MonoBehaviour
         }
 
         EvaluatedHand evaluatedHand = HandEvaluator.Evaluate(selectedCards);
-        HandScoreBreakdown breakdown = ScoreCalculator.Calculate(selectedCards);
+        HandScoreBreakdown breakdown = ScoreCalculator.Calculate(selectedCards, GetCurrentRunState());
 
         StartCoroutine(PlayHandRoutine(evaluatedHand, breakdown));
     }
@@ -726,5 +730,10 @@ public class PlayerHandZone : MonoBehaviour
             },
             _ => new List<CardData>()
         };
+    }
+
+    private RunState GetCurrentRunState()
+    {
+        return runStateHolder != null ? runStateHolder.CurrentRunState : null;
     }
 }

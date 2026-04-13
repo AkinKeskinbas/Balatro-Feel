@@ -13,6 +13,7 @@ public class RunState
 
     public CharacterData SelectedCharacter;
     public GlobalFieldData SelectedGlobalField;
+    public List<JokerBase> EquippedJokers = new();
 
     public List<RuneSlotState> RuneSlots = new();
 
@@ -63,6 +64,20 @@ public class RunState
             .Where(slot => slot.IsUnlocked && slot.EquippedRune != null)
             .Select(slot => slot.EquippedRune)
             .ToList();
+    }
+
+    public IReadOnlyList<JokerBase> GetEquippedJokers()
+    {
+        return EquippedJokers
+            .Where(joker => joker != null)
+            .ToList();
+    }
+
+    public void SetEquippedJokers(IEnumerable<JokerBase> jokers)
+    {
+        EquippedJokers = jokers == null
+            ? new List<JokerBase>()
+            : jokers.Where(joker => joker != null).ToList();
     }
 
     public bool TryUnlockNextRuneSlot()

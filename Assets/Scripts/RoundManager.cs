@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class RoundManager : MonoBehaviour
@@ -6,6 +7,7 @@ public class RoundManager : MonoBehaviour
     [SerializeField] private RunStateHolder runStateHolder;
     [SerializeField] private PlayerHandZone playerHandZone;
     [SerializeField] private RoundHUDView roundHUDView;
+    [SerializeField] private List<JokerBase> debugStartingJokers = new();
 
     [Header("Round Config")]
     [SerializeField] private int baseTargetScore = 300;
@@ -87,6 +89,8 @@ public class RoundManager : MonoBehaviour
 
         if (roundHUDView != null)
             roundHUDView.ResetForNewRound();
+
+        DispatchRoundEvent(JokerEventType.RoundStarted, run);
     }
 
     private void InitializeRunStateIfNeeded()
@@ -119,6 +123,7 @@ public class RoundManager : MonoBehaviour
         );
 
         RunState run = new RunState(character, field);
+        run.SetEquippedJokers(debugStartingJokers);
         runStateHolder.InitializeRun(run);
 
         Debug.Log("RunState initialized.");
@@ -183,6 +188,7 @@ public class RoundManager : MonoBehaviour
             Debug.Log("=== ROUND WON ===");
             Debug.Log(IsPvPRound ? "PvP round won." : "PvE round won.");
             Debug.Log($"Reward Gold: {roundRewardGold}");
+            DispatchRoundEvent(JokerEventType.RoundWon, GetRunState());
             return;
         }
 
@@ -199,6 +205,7 @@ public class RoundManager : MonoBehaviour
             Debug.Log("=== ROUND LOST ===");
             Debug.Log(IsPvPRound ? "PvP round lost." : "PvE round lost.");
             Debug.Log($"Lives remaining: {run.Lives}");
+            DispatchRoundEvent(JokerEventType.RoundLost, run);
         }
     }
 
@@ -255,6 +262,11 @@ public class RoundManager : MonoBehaviour
         Debug.Log(currentShopPhaseType == ShopPhaseType.FinalPrep
             ? "FinalPrep shop opened before PvP round."
             : "Normal shop opened.");
+
+        JokerEventDispatcher.DispatchShopEvent(new JokerShopContext(
+            run,
+            currentShopPhaseType,
+            run.GetEquippedJokers()));
     }
 
     private void StartNextRound()
@@ -292,6 +304,7 @@ public class RoundManager : MonoBehaviour
         );
 
         RunState freshRun = new RunState(character, field, startingLives: 3);
+        freshRun.SetEquippedJokers(debugStartingJokers);
         runStateHolder.InitializeRun(freshRun);
 
         isInShopPhase = false;
@@ -337,5 +350,22 @@ public class RoundManager : MonoBehaviour
         return runStateHolder != null &&
                runStateHolder.CurrentRunState != null &&
                runStateHolder.CurrentRunState.IsValidRunStartState;
+    }
+
+    private void DispatchRoundEvent(JokerEventType eventType, RunState runState)
+    {
+        if (runState == null)
+            return;
+
+        JokerEventDispatcher.DispatchRoundEvent(
+            eventType,
+            new JokerRoundContext(
+                runState,
+                currentPhaseType,
+                targetScore,
+                currentScore,
+                handsRemaining,
+                discardsRemaining,
+                runState.GetEquippedJokers()));
     }
 }

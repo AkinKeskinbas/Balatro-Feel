@@ -17,7 +17,7 @@ public static class ScoreCalculator
             { PokerHandType.StraightFlush, new HandBaseScore(100, 8) },
         };
 
-    public static HandScoreBreakdown Calculate(List<Card> playedCards)
+    public static HandScoreBreakdown Calculate(List<Card> playedCards, RunState runState = null)
     {
         if (playedCards == null || playedCards.Count < 1 || playedCards.Count > 5)
             throw new System.ArgumentException("ScoreCalculator requires between 1 and 5 played cards.");
@@ -32,14 +32,21 @@ public static class ScoreCalculator
             BaseMult = baseScore.multiplier
         };
 
+        HandContext handContext = new HandContext(
+            runState,
+            evaluated,
+            breakdown,
+            runState?.GetEquippedJokers());
+
         breakdown.DebugLines.Add($"Hand: {evaluated.HandType}");
         breakdown.DebugLines.Add($"Base Chips: {breakdown.BaseChips}");
         breakdown.DebugLines.Add($"Base Mult: {breakdown.BaseMult}");
 
         ApplyPlayedCardBonuses(evaluated, breakdown);
-        ApplyJokerBonuses(evaluated, breakdown);
+        ApplyJokerBonuses(handContext);
         ApplyRuneBonuses(evaluated, breakdown);
         ApplyFieldBonuses(evaluated, breakdown);
+        JokerEventDispatcher.DispatchHandEvent(JokerEventType.AfterHandScored, handContext);
 
         breakdown.DebugLines.Add($"Scoring Cards Count: {evaluated.ScoringCards.Count}");
         foreach (Card card in evaluated.ScoringCards)
@@ -66,8 +73,13 @@ public static class ScoreCalculator
             breakdown.DebugLines.Add($"+ {card.GetCardName()} contributes {CardScoreHelper.GetChipValue(card)} chips");
     }
 
-    private static void ApplyJokerBonuses(EvaluatedHand evaluated, HandScoreBreakdown breakdown)
+    private static void ApplyJokerBonuses(HandContext context)
     {
+        if (context == null)
+            return;
+
+        context.Breakdown.DebugLines.Add($"Active Jokers: {context.ActiveJokers?.Count ?? 0}");
+        JokerEventDispatcher.DispatchHandEvent(JokerEventType.BeforeHandScored, context);
     }
 
     private static void ApplyRuneBonuses(EvaluatedHand evaluated, HandScoreBreakdown breakdown)
