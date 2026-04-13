@@ -7,6 +7,7 @@ public class RoundManager : MonoBehaviour
     [SerializeField] private RunStateHolder runStateHolder;
     [SerializeField] private PlayerHandZone playerHandZone;
     [SerializeField] private RoundHUDView roundHUDView;
+    [SerializeField] private ShopView shopView;
     [SerializeField] private List<JokerBase> debugStartingJokers = new();
 
     [Header("Round Config")]
@@ -55,6 +56,11 @@ public class RoundManager : MonoBehaviour
         if (roundHUDView == null)
             roundHUDView = FindAnyObjectByType<RoundHUDView>();
 
+        if (shopView == null)
+            shopView = Resources.FindObjectsOfTypeAll<ShopView>().Length > 0
+                ? Resources.FindObjectsOfTypeAll<ShopView>()[0]
+                : null;
+
         InitializeRunStateIfNeeded();
         StartRound();
     }
@@ -64,6 +70,9 @@ public class RoundManager : MonoBehaviour
         RunState run = GetRunState();
         if (run == null)
             return;
+
+        if (playerHandZone != null && playerHandZone.GetDeckManager() != null)
+            playerHandZone.GetDeckManager().ResetDeckProfile();
 
         currentPhaseType = IsPvPRoundIndex(run.RoundIndex)
             ? RoundPhaseType.PvP
@@ -232,16 +241,6 @@ public class RoundManager : MonoBehaviour
         }
 
         EnterShopPhase();
-        run.AdvanceToNextRound();
-
-        Debug.Log("=== NEXT ROUND READY ===");
-        Debug.Log($"Next Stage: {run.CycleIndex}");
-        Debug.Log($"Next Round: {run.RoundIndex}");
-        Debug.Log($"Lives: {run.Lives}");
-        Debug.Log($"Gold: {run.Gold}");
-        Debug.Log($"Next Target Score: {baseTargetScore + ((run.RoundIndex - 1) * targetScorePerRoundIncrease)}");
-
-        StartNextRound();
     }
 
     private void EnterShopPhase()
@@ -267,14 +266,39 @@ public class RoundManager : MonoBehaviour
             run,
             currentShopPhaseType,
             run.GetEquippedJokers()));
+
+        if (shopView != null)
+            shopView.OpenShop(currentShopPhaseType);
     }
 
     private void StartNextRound()
     {
+        StartRound();
+
         if (playerHandZone != null)
             playerHandZone.ResetHandForNewRound();
+    }
 
-        StartRound();
+    public void ProceedToNextRoundFromShop()
+    {
+        if (!isInShopPhase)
+            return;
+
+        RunState run = GetRunState();
+        if (run == null)
+            return;
+
+        isInShopPhase = false;
+        run.AdvanceToNextRound();
+
+        Debug.Log("=== NEXT ROUND READY ===");
+        Debug.Log($"Next Stage: {run.CycleIndex}");
+        Debug.Log($"Next Round: {run.RoundIndex}");
+        Debug.Log($"Lives: {run.Lives}");
+        Debug.Log($"Gold: {run.Gold}");
+        Debug.Log($"Next Target Score: {baseTargetScore + ((run.RoundIndex - 1) * targetScorePerRoundIncrease)}");
+
+        StartNextRound();
     }
 
     private void HandleGameOver()
@@ -309,6 +333,9 @@ public class RoundManager : MonoBehaviour
 
         isInShopPhase = false;
         currentShopPhaseType = ShopPhaseType.Normal;
+
+        if (shopView != null)
+            shopView.HideInstant();
 
         if (playerHandZone != null)
             playerHandZone.ResetDeckAndHandForNewRun();
@@ -361,6 +388,7 @@ public class RoundManager : MonoBehaviour
             eventType,
             new JokerRoundContext(
                 runState,
+                playerHandZone != null ? playerHandZone.GetDeckManager() : null,
                 currentPhaseType,
                 targetScore,
                 currentScore,

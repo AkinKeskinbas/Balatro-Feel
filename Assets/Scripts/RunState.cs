@@ -80,6 +80,20 @@ public class RunState
             : jokers.Where(joker => joker != null).ToList();
     }
 
+    public bool HasJoker(JokerBase joker)
+    {
+        return joker != null && EquippedJokers.Contains(joker);
+    }
+
+    public bool TryAddJoker(JokerBase joker)
+    {
+        if (joker == null || HasJoker(joker))
+            return false;
+
+        EquippedJokers.Add(joker);
+        return true;
+    }
+
     public bool TryUnlockNextRuneSlot()
     {
         RuneSlotState nextLocked = RuneSlots.FirstOrDefault(slot => !slot.IsUnlocked);

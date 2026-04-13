@@ -811,6 +811,11 @@ public class PlayerHandZone : MonoBehaviour
         return runStateHolder != null ? runStateHolder.CurrentRunState : null;
     }
 
+    public DeckManager GetDeckManager()
+    {
+        return deckManager;
+    }
+
     private void ReleaseHeldCardBeforePlay()
     {
         if (selectedCard == null)
