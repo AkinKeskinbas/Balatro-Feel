@@ -3,10 +3,19 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using DG.Tweening;
+using UnityEngine.UI;
 
 [RequireComponent(typeof(RectTransform))]
 public class PlayerHandZone : MonoBehaviour
 {
+    public enum HandPlayPhase
+    {
+        Idle,
+        Playing,
+        Calculating,
+        Done
+    }
+
     [Header("References")] [SerializeField]
     private GameObject slotPrefab;
 
@@ -41,8 +50,17 @@ public class PlayerHandZone : MonoBehaviour
     [SerializeField] private RoundHUDView roundHUDView;
     [Header("Presentation")]
     [SerializeField] private PlayedCardsPresenter playedCardsPresenter;
+    [Header("Buttons")]
+    [SerializeField] private Button playButton;
+    [SerializeField] private Button discardButton;
 
-    private bool isPlayingHand;
+    [Header("Phase")]
+    [SerializeField] private HandPlayPhase handPlayPhase = HandPlayPhase.Idle;
+    public event System.Action<HandPlayPhase> HandPlayPhaseChanged;
+
+    public HandPlayPhase CurrentHandPlayPhase => handPlayPhase;
+    public bool IsHandInteractionLocked => handPlayPhase != HandPlayPhase.Idle || isDiscarding;
+
     private Rank GetRandomRank()
     {
         Rank[] ranks = (Rank[])System.Enum.GetValues(typeof(Rank));
@@ -96,11 +114,23 @@ public class PlayerHandZone : MonoBehaviour
         if (playedCardsPresenter == null)
             playedCardsPresenter = FindAnyObjectByType<PlayedCardsPresenter>();
 
+        if (playButton == null && roundHUDView != null)
+            playButton = roundHUDView.PlayButton;
+
+        if (discardButton == null && roundHUDView != null)
+            discardButton = roundHUDView.DiscardButton;
+
         if (runStateHolder == null)
             runStateHolder = FindAnyObjectByType<RunStateHolder>();
 
+        BindButtons();
         SpawnStartingCardsFromDeck();
         StartCoroutine(InitVisualIndexes());
+    }
+
+    private void OnDestroy()
+    {
+        UnbindButtons();
     }
 
     private void SpawnStartingCardsFromDeck()
@@ -183,8 +213,6 @@ public class PlayerHandZone : MonoBehaviour
         HandleDeleteInput();
         HandleDeselectInput();
         HandleCardSwap();
-        HandlePlayHandInput();
-        HandleDiscardInput();
         UpdateHandPreview();
     }
     private void UpdateHandPreview()
@@ -192,7 +220,7 @@ public class PlayerHandZone : MonoBehaviour
         if (roundHUDView == null)
             return;
 
-        if (isPlayingHand || isDiscarding)
+        if (IsHandInteractionLocked)
             return;
 
         var selectedCards = GetSelectedCards();
@@ -206,16 +234,16 @@ public class PlayerHandZone : MonoBehaviour
         HandScoreBreakdown breakdown = ScoreCalculator.Calculate(selectedCards, GetCurrentRunState());
         roundHUDView.ShowHandPreviewInstant(breakdown);
     }
-    private void HandleDiscardInput()
+    public void DiscardSelectedCards()
     {
-        if (!Input.GetKeyDown(KeyCode.D))
-            return;
-
         TryDiscardSelectedCards();
     }
 
     private void TryDiscardSelectedCards()
     {
+        if (IsHandInteractionLocked)
+            return;
+
         if (!roundManager.CanDiscard())
         {
             Debug.LogWarning("No discards remaining or round is over.");
@@ -242,6 +270,7 @@ public class PlayerHandZone : MonoBehaviour
     private IEnumerator DiscardAndRedrawRoutine(List<Card> selectedCards)
     {
         isDiscarding = true;
+        SetHandCardsInteractable(false);
         roundManager.ConsumeDiscard();
 
         hoveredCard = null;
@@ -301,14 +330,12 @@ public class PlayerHandZone : MonoBehaviour
 
         Debug.Log($"Discard complete. Discards remaining: {roundManager.DiscardsRemaining}");
         isDiscarding = false;
+        SetHandCardsInteractable(true);
     }
 
-    private void HandlePlayHandInput()
+    public void PlaySelectedCards()
     {
-        if (!Input.GetKeyDown(KeyCode.Space))
-            return;
-
-        if (isPlayingHand)
+        if (IsHandInteractionLocked)
             return;
 
         if (!roundManager.CanPlayHand())
@@ -325,6 +352,8 @@ public class PlayerHandZone : MonoBehaviour
             return;
         }
 
+        ReleaseHeldCardBeforePlay();
+
         EvaluatedHand evaluatedHand = HandEvaluator.Evaluate(selectedCards);
         HandScoreBreakdown breakdown = ScoreCalculator.Calculate(selectedCards, GetCurrentRunState());
 
@@ -332,7 +361,9 @@ public class PlayerHandZone : MonoBehaviour
     }
     private IEnumerator PlayHandRoutine(EvaluatedHand evaluatedHand, HandScoreBreakdown breakdown)
     {
-        isPlayingHand = true;
+        SetHandPlayPhase(HandPlayPhase.Playing);
+        if (playedCardsPresenter != null)
+            PreparePlayedCardsForPresentation(evaluatedHand.PlayedCards);
 
         int roundScoreBefore = roundManager.CurrentScore;
 
@@ -345,6 +376,7 @@ public class PlayerHandZone : MonoBehaviour
         if (playedCardsPresenter != null)
             yield return StartCoroutine(playedCardsPresenter.PresentPlayedHand(evaluatedHand, breakdown));
 
+        SetHandPlayPhase(HandPlayPhase.Calculating);
         roundManager.PlayHand(breakdown);
 
         int roundScoreAfter = roundManager.CurrentScore;
@@ -353,24 +385,26 @@ public class PlayerHandZone : MonoBehaviour
             roundHUDView.PlayHandScoreSequence(breakdown, roundScoreBefore, roundScoreAfter);
 
         yield return new WaitForSeconds(1.6f);
+        SetHandPlayPhase(HandPlayPhase.Done);
 
         if (playedCardsPresenter != null)
             playedCardsPresenter.OnChipContributionStep = null;
 
         if (roundManager.IsRoundOver)
         {
+            CleanupPresentedCards(evaluatedHand.PlayedCards);
             roundManager.CompleteRoundFlow();
-            isPlayingHand = false;
+            SetHandPlayPhase(HandPlayPhase.Idle);
             UpdateHandPreview();
             yield break;
         }
 
         yield return StartCoroutine(RemovePlayedCardsAndRedraw(evaluatedHand.PlayedCards));
 
-        isPlayingHand = false;
+        SetHandPlayPhase(HandPlayPhase.Idle);
         UpdateHandPreview();
     }
-    private IEnumerator RemovePlayedCardsAndRedraw(List<Card> playedCards)
+    private void PreparePlayedCardsForPresentation(List<Card> playedCards)
     {
         hoveredCard = null;
         selectedCard = null;
@@ -386,10 +420,12 @@ public class PlayerHandZone : MonoBehaviour
             card.Deselect();
             cards.Remove(card);
 
-            if (card.transform.parent != null)
-                slotsToDestroy.Add(card.transform.parent);
-            else
-                Destroy(card.gameObject);
+            Transform parent = card.transform.parent;
+            if (playedCardsPresenter != null)
+                playedCardsPresenter.PrepareCardForPresentation(card);
+
+            if (parent != null && parent.CompareTag("Slot"))
+                slotsToDestroy.Add(parent);
         }
 
         foreach (Transform slot in slotsToDestroy)
@@ -398,15 +434,35 @@ public class PlayerHandZone : MonoBehaviour
                 continue;
 
             slot.DOKill(true);
-
-            Card childCard = slot.GetComponentInChildren<Card>();
-            if (childCard != null)
-                childCard.KillTweens();
-
             Destroy(slot.gameObject);
         }
 
         RefreshLayout();
+    }
+
+    private void CleanupPresentedCards(List<Card> playedCards)
+    {
+        if (playedCardsPresenter != null)
+            playedCardsPresenter.ClearPresentationState();
+
+        foreach (Card card in playedCards)
+        {
+            if (card == null)
+                continue;
+
+            card.KillTweens();
+
+            Transform parent = card.transform.parent;
+            if (parent != null && parent.CompareTag("Slot"))
+                Destroy(parent.gameObject);
+            else
+                Destroy(card.gameObject);
+        }
+    }
+
+    private IEnumerator RemovePlayedCardsAndRedraw(List<Card> playedCards)
+    {
+        CleanupPresentedCards(playedCards);
 
         yield return new WaitForSeconds(0.12f);
 
@@ -490,6 +546,12 @@ public class PlayerHandZone : MonoBehaviour
 
     private void BeginDrag(Card card)
     {
+        if (IsHandInteractionLocked)
+        {
+            card.CancelInteraction();
+            return;
+        }
+
         selectedCard = card;
     }
 
@@ -538,6 +600,9 @@ public class PlayerHandZone : MonoBehaviour
 
     private void HandleDeselectInput()
     {
+        if (IsHandInteractionLocked)
+            return;
+
         if (!Input.GetMouseButtonDown(1))
             return;
 
@@ -547,6 +612,9 @@ public class PlayerHandZone : MonoBehaviour
 
     private void HandleCardSwap()
     {
+        if (IsHandInteractionLocked)
+            return;
+
         if (selectedCard == null || isCrossing)
             return;
 
@@ -612,6 +680,9 @@ public class PlayerHandZone : MonoBehaviour
 
     public void ResetHandForNewRound()
     {
+        if (deckManager != null)
+            deckManager.ResetDeck();
+
         ClearAllCardsFromHand();
         SpawnStartingCardsFromDeck();
         StartCoroutine(InitVisualIndexes());
@@ -620,7 +691,10 @@ public class PlayerHandZone : MonoBehaviour
     public void ResetDeckAndHandForNewRun()
     {
         if (deckManager != null)
+        {
+            deckManager.ResetDeckProfile();
             deckManager.ResetDeck();
+        }
 
         ClearAllCardsFromHand();
         SpawnStartingCardsFromDeck();
@@ -735,5 +809,69 @@ public class PlayerHandZone : MonoBehaviour
     private RunState GetCurrentRunState()
     {
         return runStateHolder != null ? runStateHolder.CurrentRunState : null;
+    }
+
+    private void ReleaseHeldCardBeforePlay()
+    {
+        if (selectedCard == null)
+            return;
+
+        selectedCard.CancelInteraction();
+        selectedCard = null;
+        RefreshLayout();
+    }
+
+    private void SetHandPlayPhase(HandPlayPhase phase)
+    {
+        if (handPlayPhase == phase)
+            return;
+
+        handPlayPhase = phase;
+        SetHandCardsInteractable(handPlayPhase == HandPlayPhase.Idle && !isDiscarding);
+        HandPlayPhaseChanged?.Invoke(handPlayPhase);
+    }
+
+    private void SetHandCardsInteractable(bool interactable)
+    {
+        foreach (Card card in cards)
+        {
+            if (card == null)
+                continue;
+
+            if (!interactable)
+                card.CancelInteraction();
+
+            card.enabled = interactable;
+        }
+
+        if (!interactable)
+        {
+            selectedCard = null;
+            hoveredCard = null;
+        }
+    }
+
+    private void BindButtons()
+    {
+        if (playButton != null)
+        {
+            playButton.onClick.RemoveListener(PlaySelectedCards);
+            playButton.onClick.AddListener(PlaySelectedCards);
+        }
+
+        if (discardButton != null)
+        {
+            discardButton.onClick.RemoveListener(DiscardSelectedCards);
+            discardButton.onClick.AddListener(DiscardSelectedCards);
+        }
+    }
+
+    private void UnbindButtons()
+    {
+        if (playButton != null)
+            playButton.onClick.RemoveListener(PlaySelectedCards);
+
+        if (discardButton != null)
+            discardButton.onClick.RemoveListener(DiscardSelectedCards);
     }
 }

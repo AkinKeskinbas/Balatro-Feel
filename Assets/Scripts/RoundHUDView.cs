@@ -1,13 +1,18 @@
 using System.Collections;
+using System.Collections.Generic;
 using DG.Tweening;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class RoundHUDView : MonoBehaviour
 {
     [Header("Refs")]
     [SerializeField] private RoundManager roundManager;
     [SerializeField] private RunStateHolder runStateHolder;
+    [SerializeField] private PlayerHandZone playerHandZone;
+    [SerializeField] private Button playButton;
+    [SerializeField] private Button discardButton;
 
     [Header("Score Section")]
     [SerializeField] private TextMeshProUGUI targetScoreText;
@@ -34,9 +39,29 @@ public class RoundHUDView : MonoBehaviour
     [SerializeField] private TextMeshProUGUI roundText;
     [SerializeField] private TextMeshProUGUI nextPhaseText;
 
+    [Header("Lives")]
+    [SerializeField] private List<GameObject> lifeHearts = new();
+
     private Coroutine handPreviewRoutine;
     private Coroutine roundScoreRoutine;
     private int animatedChipValue;
+    private readonly List<HeartTemplate> heartTemplates = new();
+
+    private class HeartTemplate
+    {
+        public GameObject Template;
+        public Transform Parent;
+        public int SiblingIndex;
+        public string Name;
+    }
+
+    public Button PlayButton => playButton;
+    public Button DiscardButton => discardButton;
+
+    private void Awake()
+    {
+        CacheHeartTemplates();
+    }
 
     private void Start()
     {
@@ -46,13 +71,23 @@ public class RoundHUDView : MonoBehaviour
         if (runStateHolder == null)
             runStateHolder = FindAnyObjectByType<RunStateHolder>();
 
+        if (playerHandZone == null)
+            playerHandZone = FindAnyObjectByType<PlayerHandZone>();
+
+        if (playerHandZone != null)
+            playerHandZone.HandPlayPhaseChanged += HandleHandPlayPhaseChanged;
+
         ClearHandPreview();
         RefreshStaticInfo();
+        RefreshActionButtons();
+        SyncLivesVisual();
     }
 
     private void Update()
     {
         RefreshStaticInfo();
+        RefreshActionButtons();
+        SyncLivesVisual();
     }
 
     private void OnDisable()
@@ -62,6 +97,9 @@ public class RoundHUDView : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (playerHandZone != null)
+            playerHandZone.HandPlayPhaseChanged -= HandleHandPlayPhaseChanged;
+
         StopActiveAnimations();
     }
 
@@ -109,7 +147,7 @@ public class RoundHUDView : MonoBehaviour
                 targetScoreText.text = roundManager.TargetScore.ToString();
 
             if (rewardText != null)
-                rewardText.text = $"Reward: ${roundManager.RoundRewardGold}";
+                rewardText.text = $"${roundManager.RoundRewardGold}";
 
             if (handsValueText != null)
                 handsValueText.text = roundManager.HandsRemaining.ToString();
@@ -246,6 +284,7 @@ public class RoundHUDView : MonoBehaviour
     {
         StopActiveAnimations();
         RefreshStaticInfo();
+        SyncLivesVisual(forceRebuild: true);
 
         if (roundScoreText != null)
             roundScoreText.text = "0";
@@ -322,5 +361,111 @@ public class RoundHUDView : MonoBehaviour
             PokerHandType.StraightFlush => "Straight Flush",
             _ => handType.ToString()
         };
+    }
+
+    private void HandleHandPlayPhaseChanged(PlayerHandZone.HandPlayPhase _)
+    {
+        RefreshActionButtons();
+    }
+
+    private void RefreshActionButtons()
+    {
+        if (playerHandZone == null || roundManager == null)
+            return;
+
+        int selectedCount = playerHandZone.GetSelectedCards().Count;
+        bool hasValidSelection = selectedCount >= 1 && selectedCount <= 5;
+        bool canInteract = !playerHandZone.IsHandInteractionLocked;
+
+        if (playButton != null)
+            playButton.interactable = canInteract && roundManager.CanPlayHand() && hasValidSelection;
+
+        if (discardButton != null)
+            discardButton.interactable = canInteract && roundManager.CanDiscard() && hasValidSelection;
+    }
+
+    private void CacheHeartTemplates()
+    {
+        if (heartTemplates.Count > 0)
+            return;
+
+        foreach (GameObject heart in lifeHearts)
+        {
+            if (heart == null)
+                continue;
+
+            GameObject template = Instantiate(heart, heart.transform.parent);
+            template.name = heart.name;
+            template.SetActive(false);
+
+            heartTemplates.Add(new HeartTemplate
+            {
+                Template = template,
+                Parent = heart.transform.parent,
+                SiblingIndex = heart.transform.GetSiblingIndex(),
+                Name = heart.name
+            });
+        }
+    }
+
+    private void SyncLivesVisual(bool forceRebuild = false)
+    {
+        if (heartTemplates.Count == 0)
+            CacheHeartTemplates();
+
+        if (runStateHolder == null || runStateHolder.CurrentRunState == null)
+            return;
+
+        int targetLives = Mathf.Clamp(runStateHolder.CurrentRunState.Lives, 0, heartTemplates.Count);
+
+        if (forceRebuild)
+            RebuildHearts(targetLives);
+
+        while (lifeHearts.Count > targetLives)
+        {
+            int lastIndex = lifeHearts.Count - 1;
+            GameObject heart = lifeHearts[lastIndex];
+            lifeHearts.RemoveAt(lastIndex);
+
+            if (heart != null)
+                Destroy(heart);
+        }
+
+        while (lifeHearts.Count < targetLives)
+        {
+            HeartTemplate template = heartTemplates[lifeHearts.Count];
+            if (template?.Template == null || template.Parent == null)
+                break;
+
+            GameObject heart = Instantiate(template.Template, template.Parent);
+            heart.name = template.Name;
+            heart.transform.SetSiblingIndex(template.SiblingIndex);
+            heart.SetActive(true);
+            lifeHearts.Add(heart);
+        }
+    }
+
+    private void RebuildHearts(int targetLives)
+    {
+        foreach (GameObject heart in lifeHearts)
+        {
+            if (heart != null)
+                Destroy(heart);
+        }
+
+        lifeHearts.Clear();
+
+        for (int i = 0; i < targetLives && i < heartTemplates.Count; i++)
+        {
+            HeartTemplate template = heartTemplates[i];
+            if (template?.Template == null || template.Parent == null)
+                continue;
+
+            GameObject heart = Instantiate(template.Template, template.Parent);
+            heart.name = template.Name;
+            heart.transform.SetSiblingIndex(template.SiblingIndex);
+            heart.SetActive(true);
+            lifeHearts.Add(heart);
+        }
     }
 }

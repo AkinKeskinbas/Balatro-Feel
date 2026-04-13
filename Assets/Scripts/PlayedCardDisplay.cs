@@ -36,7 +36,10 @@ public class PlayedCardDisplay : MonoBehaviour
             rankText.text = GetRankLabel(card.Rank);
 
         if (suitText != null)
+        {
             suitText.text = GetSuitLabel(card.Suit);
+            suitText.color = GetSuitColor(card.Suit);
+        }
 
         HideContributionImmediate();
     }
@@ -172,6 +175,18 @@ public class PlayedCardDisplay : MonoBehaviour
             Suit.Diamonds => "♦",
             Suit.Clubs => "♣",
             _ => "?"
+        };
+    }
+
+    private Color GetSuitColor(Suit suit)
+    {
+        return suit switch
+        {
+            Suit.Hearts => Color.red,
+            Suit.Diamonds => Color.red,
+            Suit.Spades => Color.black,
+            Suit.Clubs => Color.black,
+            _ => Color.white
         };
     }
 }

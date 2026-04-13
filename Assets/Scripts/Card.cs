@@ -52,6 +52,7 @@ public class Card : MonoBehaviour,
     private Vector3 dragOffset;
     private float pointerDownTime;
     private float pointerUpTime;
+    private bool interactionCancelled;
 
     private void Awake()
     {
@@ -112,7 +113,14 @@ public class Card : MonoBehaviour,
 
     public void OnBeginDrag(PointerEventData eventData)
     {
+        if (!enabled)
+            return;
+
+        interactionCancelled = false;
         BeginDragEvent.Invoke(this);
+
+        if (interactionCancelled || !enabled)
+            return;
 
         Vector2 mousePosition = mainCamera.ScreenToWorldPoint(Input.mousePosition);
         dragOffset = mousePosition - (Vector2)transform.position;
@@ -144,18 +152,27 @@ public class Card : MonoBehaviour,
 
     public void OnPointerEnter(PointerEventData eventData)
     {
+        if (!enabled)
+            return;
+
         PointerEnterEvent.Invoke(this);
         isHovering = true;
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
+        if (!enabled)
+            return;
+
         PointerExitEvent.Invoke(this);
         isHovering = false;
     }
 
     public void OnPointerDown(PointerEventData eventData)
     {
+        if (!enabled)
+            return;
+
         if (eventData.button != PointerEventData.InputButton.Left)
             return;
 
@@ -165,6 +182,9 @@ public class Card : MonoBehaviour,
 
     public void OnPointerUp(PointerEventData eventData)
     {
+        if (!enabled)
+            return;
+
         if (eventData.button != PointerEventData.InputButton.Left)
             return;
 
@@ -197,6 +217,23 @@ public class Card : MonoBehaviour,
         selected = false;
         SelectEvent.Invoke(this, false);
         transform.localPosition = Vector3.zero;
+    }
+
+    public void CancelInteraction()
+    {
+        interactionCancelled = true;
+        isDragging = false;
+        wasDragged = false;
+        isHovering = false;
+
+        if (graphicRaycaster != null)
+            graphicRaycaster.enabled = true;
+
+        if (imageComponent != null)
+            imageComponent.raycastTarget = true;
+
+        EndDragEvent.Invoke(this);
+        Deselect();
     }
 
     private void ClampPosition()

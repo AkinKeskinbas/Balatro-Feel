@@ -1,15 +1,13 @@
 using System.Collections;
 using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
 using DG.Tweening;
+using UnityEngine.UI;
 
 public class PlayedCardsPresenter : MonoBehaviour
 {
     [Header("Refs")]
     [SerializeField] private RectTransform playedCardsLayout;
-   // [SerializeField] private TextMeshProUGUI scoreBurstText;
-    [SerializeField] private PlayedCardDisplay playedCardPrefab;
 
     [Header("Layout")]
     [SerializeField] private float cardSpacing = 150f;
@@ -22,14 +20,52 @@ public class PlayedCardsPresenter : MonoBehaviour
     [SerializeField] private float scoreBurstHoldDuration = 0.8f;
     [SerializeField] private float fadeOutDuration = 0.25f;
 
-    private readonly List<PlayedCardDisplay> activeDisplays = new();
+    private readonly List<Card> activeCards = new();
     public System.Func<int, IEnumerator> OnChipContributionStep;
+
+    public void PrepareCardForPresentation(Card card)
+    {
+        if (card == null || playedCardsLayout == null)
+            return;
+
+        card.KillTweens();
+        card.Deselect();
+        card.enabled = false;
+
+        Image cardImage = card.GetComponent<Image>();
+        if (cardImage != null)
+            cardImage.raycastTarget = false;
+
+        RectTransform cardRect = card.transform as RectTransform;
+        if (cardRect == null)
+            return;
+
+        cardRect.SetParent(playedCardsLayout, true);
+        cardRect.localScale = Vector3.one;
+        cardRect.localRotation = Quaternion.identity;
+
+        if (card.cardVisual != null)
+        {
+            PlayedCardDisplay display = card.cardVisual.GetComponent<PlayedCardDisplay>();
+            if (display != null)
+                display.Setup(card);
+
+            card.cardVisual.HideContribution();
+
+            CanvasGroup canvasGroup = card.cardVisual.GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+                canvasGroup = card.cardVisual.gameObject.AddComponent<CanvasGroup>();
+
+            canvasGroup.alpha = 1f;
+        }
+    }
+
     public IEnumerator PresentPlayedHand(EvaluatedHand evaluatedHand, HandScoreBreakdown breakdown)
     {
-        if (playedCardPrefab == null || playedCardsLayout == null || evaluatedHand == null || breakdown == null)
+        if (playedCardsLayout == null || evaluatedHand == null || breakdown == null)
             yield break;
 
-        ClearActiveDisplays();
+        ClearPresentationState();
 
        
         List<Vector2> positions = CalculateCardPositions(evaluatedHand.PlayedCards.Count);
@@ -37,22 +73,17 @@ public class PlayedCardsPresenter : MonoBehaviour
         for (int i = 0; i < evaluatedHand.PlayedCards.Count; i++)
         {
             Card playedCard = evaluatedHand.PlayedCards[i];
-
-            PlayedCardDisplay display = Instantiate(playedCardPrefab, playedCardsLayout);
-            RectTransform rt = display.GetComponent<RectTransform>();
+            RectTransform rt = playedCard != null ? playedCard.transform as RectTransform : null;
+            if (playedCard == null || rt == null)
+                continue;
 
             rt.localScale = Vector3.one;
             rt.localRotation = Quaternion.identity;
-
-            // önce biraz aşağıda başlasın
-            rt.anchoredPosition = new Vector2(positions[i].x, positions[i].y - 40f);
-
-            display.Setup(playedCard);
-            activeDisplays.Add(display);
+            activeCards.Add(playedCard);
 
             rt.DOAnchorPos(positions[i], 0.2f)
                 .SetEase(Ease.OutQuad)
-                .SetLink(display.gameObject, LinkBehaviour.KillOnDestroy);
+                .SetLink(playedCard.gameObject, LinkBehaviour.KillOnDestroy);
         }
 
         yield return new WaitForSeconds(initialRevealDelay);
@@ -60,12 +91,14 @@ public class PlayedCardsPresenter : MonoBehaviour
         for (int i = 0; i < evaluatedHand.PlayedCards.Count; i++)
         {
             Card playedCard = evaluatedHand.PlayedCards[i];
-            PlayedCardDisplay display = activeDisplays[i];
+            if (playedCard == null)
+                continue;
 
             if (evaluatedHand.ScoringCards.Contains(playedCard))
             {
                 int chipValue = CardScoreHelper.GetChipValue(playedCard);
-                display.ShowChipContributionAnimated(chipValue);
+                if (playedCard.cardVisual != null)
+                    playedCard.cardVisual.ShowChipContribution(chipValue);
                 if (OnChipContributionStep != null)
                     yield return OnChipContributionStep.Invoke(chipValue);
             }
@@ -77,10 +110,8 @@ public class PlayedCardsPresenter : MonoBehaviour
 
       
 
-        FadeOutDisplays();
+        FadeOutCards();
         yield return new WaitForSeconds(fadeOutDuration);
-
-        ClearActiveDisplays();
     }
 
     private List<Vector2> CalculateCardPositions(int count)
@@ -102,35 +133,47 @@ public class PlayedCardsPresenter : MonoBehaviour
         return result;
     }
 
-    private void FadeOutDisplays()
+    public void ClearPresentationState()
     {
-        foreach (PlayedCardDisplay display in activeDisplays)
+        foreach (Card card in activeCards)
         {
-            if (display == null)
+            if (card == null)
                 continue;
 
-            CanvasGroup cg = display.GetComponent<CanvasGroup>();
-            if (cg == null)
-                cg = display.gameObject.AddComponent<CanvasGroup>();
+            card.transform.DOKill(true);
 
-            cg.DOKill(true);
-            cg.DOFade(0f, fadeOutDuration)
-                .SetLink(display.gameObject, LinkBehaviour.KillOnDestroy);
-        }
-    }
-
-    private void ClearActiveDisplays()
-    {
-        foreach (var display in activeDisplays)
-        {
-            if (display != null)
+            if (card.cardVisual != null)
             {
-                display.transform.DOKill(true);
-                display.DOKill(true);
-                Destroy(display.gameObject);
+                card.cardVisual.HideContribution();
+
+                CanvasGroup canvasGroup = card.cardVisual.GetComponent<CanvasGroup>();
+                if (canvasGroup != null)
+                {
+                    canvasGroup.DOKill(true);
+                    canvasGroup.alpha = 1f;
+                }
+
+                card.cardVisual.KillTweens();
             }
         }
 
-        activeDisplays.Clear();
+        activeCards.Clear();
+    }
+
+    private void FadeOutCards()
+    {
+        foreach (Card card in activeCards)
+        {
+            if (card == null || card.cardVisual == null)
+                continue;
+
+            CanvasGroup canvasGroup = card.cardVisual.GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+                canvasGroup = card.cardVisual.gameObject.AddComponent<CanvasGroup>();
+
+            canvasGroup.DOKill(true);
+            canvasGroup.DOFade(0f, fadeOutDuration)
+                .SetLink(card.cardVisual.gameObject, LinkBehaviour.KillOnDestroy);
+        }
     }
 }

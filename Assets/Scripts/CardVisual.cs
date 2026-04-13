@@ -80,6 +80,7 @@ public class CardVisual : MonoBehaviour
     private GameObject contributionRoot;
 
     [SerializeField] private TextMeshProUGUI chipContributionText;
+    private PlayedCardDisplay playedCardDisplay;
 
     private void Start()
     {
@@ -93,6 +94,7 @@ public class CardVisual : MonoBehaviour
         canvas = GetComponent<Canvas>();
         shadowCanvas = visualShadow.GetComponent<Canvas>();
         mainCamera = Camera.main;
+        playedCardDisplay = GetComponent<PlayedCardDisplay>();
 
         // Subscribe to ViewModel events
         parentCard.PointerEnterEvent.AddListener(PointerEnter);
@@ -111,6 +113,12 @@ public class CardVisual : MonoBehaviour
     {
         if (parentCard == null)
             return;
+
+        if (playedCardDisplay != null)
+        {
+            playedCardDisplay.Setup(parentCard);
+            return;
+        }
 
         if (rankText != null)
             rankText.text = GetRankLabel(parentCard.Rank);
@@ -187,6 +195,12 @@ public class CardVisual : MonoBehaviour
 
     public void ShowChipContribution(int amount)
     {
+        if (playedCardDisplay != null)
+        {
+            playedCardDisplay.ShowChipContributionAnimated(amount);
+            return;
+        }
+
         if (contributionRoot == null || chipContributionText == null)
             return;
 
@@ -203,6 +217,12 @@ public class CardVisual : MonoBehaviour
 
     public void HideContribution()
     {
+        if (playedCardDisplay != null)
+        {
+            playedCardDisplay.HideContribution();
+            return;
+        }
+
         if (contributionRoot == null)
             return;
 
